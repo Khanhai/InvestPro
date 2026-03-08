@@ -244,7 +244,7 @@ footer{margin-top:2rem;background:var(--card);padding:1.5rem;text-align:center;f
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-app.js";
 import { getAuth, createUserWithEmailAndPassword, updateProfile } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-auth.js";
-import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-database.js";
+import { getDatabase, ref, get, set, update } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-VDLeGkVEHRx3bu1SUAwvv8t6Y6Fz0Dg",
@@ -252,7 +252,6 @@ const firebaseConfig = {
   databaseURL: "https://khanbaba-2d4e5-default-rtdb.firebaseio.com",
   projectId: "khanbaba-2d4e5"
 };
-
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
@@ -261,22 +260,19 @@ const signupBtn = document.getElementById('signupBtn');
 const loader = document.getElementById('loader');
 const notification = document.getElementById('notification');
 
-// Hide loader when page fully loaded
-window.addEventListener('load', ()=>{
-  const pageLoader = document.getElementById('pageLoader');
-  pageLoader.style.display='none';
-});
+// Hide loader
+window.addEventListener('load', ()=>document.getElementById('pageLoader').style.display='none');
 
-// Notification helper
-function showNotification(msg, type='info'){
+// Show notifications
+function showNotification(msg,type='info'){
   notification.innerText = msg;
-  notification.style.display = 'block';
+  notification.style.display='block';
   notification.style.background = type==='error' ? '#ffd6d6' : '#ffebcc';
   notification.style.color = type==='error' ? '#cc0000' : '#cc6600';
   setTimeout(()=>notification.style.display='none',4000);
 }
 
-// Generate referral code
+// Generate random referral code
 function generateCode(length=6){
   const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let code='';for(let i=0;i<length;i++){code+=chars.charAt(Math.floor(Math.random()*chars.length));}return code;
@@ -288,46 +284,57 @@ document.getElementById('togglePass').onclick=()=>{
   p.type=p.type==='password'?'text':'password';
 }
 
-signupBtn.addEventListener('click', ()=>{
-  const username=document.getElementById('username').value.trim();
-  const email=document.getElementById('email').value.trim();
-  const password=document.getElementById('password').value;
-  const referral=document.getElementById('referral').value.trim();
+// Signup
+signupBtn.addEventListener('click', async ()=>{
+  const username = document.getElementById('username').value.trim();
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const referral = document.getElementById('referral').value.trim();
 
-  if(!username||!email||!password){
-    showNotification('Please fill all required fields','error'); return;
-  }
+  if(!username||!email||!password){ showNotification('Please fill all required fields','error'); return; }
 
   loader.style.display='inline-block'; signupBtn.disabled=true;
 
-  createUserWithEmailAndPassword(auth,email,password)
-  .then(userCredential=>{
-    const user=userCredential.user;
-    updateProfile(user,{displayName:username}).then(()=>{
-      const userRef = ref(db,'users/'+user.uid);
-      const referralCode = generateCode();
-      const userData = { email, displayName:username, balance:0, referralCode, refBalance:0, usedReferral:false };
+  try{
+    const userCredential = await createUserWithEmailAndPassword(auth,email,password);
+    const user = userCredential.user;
+    await updateProfile(user,{displayName:username});
+    const userRef = ref(db,'users/'+user.uid);
+    const referralCode = generateCode();
 
-      if(referral){
-        get(ref(db,'users')).then(snap=>{
-          const users = snap.val() || {};
-          for(const uid in users){
-            if(users[uid].referralCode===referral){userData.referredBy=uid; break;}
-          }
-          set(userRef,userData);
-          showNotification('Account created successfully!','info');
-          setTimeout(()=>window.location.href='dashboard.html',1500);
-        });
-      } else {
-        set(userRef,userData);
-        showNotification('Account created successfully!','info');
-        setTimeout(()=>window.location.href='dashboard.html',1500);
+    const userData = { email, displayName:username, balance:0, referralCode, refBalance:0, usedReferral:false };
+
+    if(referral){
+      // Find referrer UID
+      const usersSnap = await get(ref(db,'users'));
+      const users = usersSnap.val() || {};
+      let referrerUid = null;
+      for(const uid in users){
+        if(users[uid].referralCode === referral){
+          referrerUid = uid;
+          userData.referredBy = uid;
+          break;
+        }
       }
-    });
-  })
-  .catch(error=>{
-    loader.style.display='none';
-    signupBtn.disabled=false;
+      await set(userRef,userData);
+      if(referrerUid){
+        const refRef = ref(db, 'referrals/' + referrerUid + '/' + user.uid);
+        await set(refRef,{
+          name: username,
+          email: email,
+          investmentApproved: false,
+          lost: false,
+          date: Date.now()
+        });
+      }
+    } else {
+      await set(userRef,userData);
+    }
+
+    showNotification('Account created successfully! Redirecting...','info');
+    setTimeout(()=>window.location.href='dashboard.html',1500);
+
+  } catch(error){
     let msg='';
     switch(error.code){
       case 'auth/email-already-in-use': msg='Email is already registered'; break;
@@ -336,12 +343,11 @@ signupBtn.addEventListener('click', ()=>{
       default: msg='Something went wrong. Please try again';
     }
     showNotification(msg,'error');
-  })
-  .finally(()=>{
-    loader.style.display='none';
-    signupBtn.disabled=false;
-  });
+  } finally{
+    loader.style.display='none'; signupBtn.disabled=false;
+  }
 });
 </script>
+
 </body>
 </html>
