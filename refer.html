@@ -74,8 +74,9 @@ header .logo {color:var(--primary); font-weight:700;}
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-app.js";
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-auth.js";
-import { getDatabase, ref, onValue, get, update, set } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-database.js";
+import { getDatabase, ref, onValue, get, update } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-database.js";
 
+// Firebase config
 const firebaseConfig = {
   apiKey: "AIzaSyC-VDLeGkVEHRx3bu1SUAwvv8t6Y6Fz0Dg",
   authDomain: "khanbaba-2d4e5.firebaseapp.com",
@@ -86,6 +87,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
 
+// DOM elements
 const totalReferredEl = document.getElementById('totalReferred');
 const approvedReferredEl = document.getElementById('approvedReferred');
 const lostReferredEl = document.getElementById('lostReferred');
@@ -96,26 +98,25 @@ const notification = document.getElementById('notification');
 const refListEl = document.getElementById('refList');
 const copyBtn = document.getElementById('copyBtn');
 
-let currentUser = null;
-
+// Show notification
 function showNotification(msg){
   notification.innerText = msg;
   notification.style.display = 'block';
   setTimeout(()=>notification.style.display='none',4000);
 }
 
+// Generate referral code
 function generateReferralCode(){
   return 'INV'+Math.floor(10000 + Math.random()*90000);
 }
 
+// Load user data
 onAuthStateChanged(auth, async user => {
   if(!user) return window.location.href='login.html';
-  currentUser = user;
-
   const userRef = ref(db,'users/'+user.uid);
   const snap = await get(userRef);
 
-  // Create referral code if not exists
+  // Set referral code
   let code = snap.val()?.referralCode;
   if(!code){
     code = generateReferralCode();
@@ -123,39 +124,23 @@ onAuthStateChanged(auth, async user => {
   }
   refCodeEl.value = code;
 
-  // Load referrals
+  // Load referrals efficiently
   const referralsRef = ref(db, 'referrals/' + user.uid);
   onValue(referralsRef, snap=>{
     const data = snap.val() || {};
-    const keys = Object.keys(data);
+    const users = Object.values(data);
 
-    const total = keys.length;
+    let total = users.length;
     let pending = 0, approved = 0, lost = 0, rewards = 0;
 
-    refListEl.innerHTML = '';
+    refListEl.innerHTML = total === 0 ? '<p>No referrals yet.</p>' : '';
 
-    if(total === 0){
-      refListEl.innerHTML = '<p>No referrals yet.</p>';
-    }
+    users.forEach(r=>{
+      let statusText = 'Pending', statusClass = 'status-pending';
+      if(r.investmentApproved){ approved++; rewards+=200; statusText='Approved'; statusClass='status-approved'; }
+      else if(r.lost){ lost++; statusText='Lost'; statusClass='status-lost'; }
+      else pending++;
 
-    keys.forEach(k=>{
-      const r = data[k];
-      let statusText = 'Pending';
-      let statusClass = 'status-pending';
-
-      if(r.investmentApproved){
-        approved++; rewards += 200;
-        statusText = 'Approved';
-        statusClass = 'status-approved';
-      } else if(r.lost){
-        lost++;
-        statusText = 'Lost';
-        statusClass = 'status-lost';
-      } else {
-        pending++;
-      }
-
-      // Show each referred user
       const userName = r.name || 'Unknown';
       const p = document.createElement('p');
       p.innerHTML = `${userName} - <span class="${statusClass}">${statusText}</span>`;
@@ -171,11 +156,10 @@ onAuthStateChanged(auth, async user => {
 });
 
 // Copy referral code
-copyBtn.addEventListener('click', () => {
-  refCodeEl.select();
-  refCodeEl.setSelectionRange(0, 99999);
-  document.execCommand('copy');
-  showNotification('Referral code copied!');
+copyBtn.addEventListener('click', ()=>{
+  navigator.clipboard.writeText(refCodeEl.value)
+    .then(()=>showNotification('Referral code copied!'))
+    .catch(()=>showNotification('Copy failed','error'));
 });
 </script>
 </body>
